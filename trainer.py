@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
@@ -5,9 +6,10 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor, Lambda
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from model import NeuralNetwork
 from dataset import ECGDataset
-from loss import ASLMarginLossSmooth
+from loss import ASLMarginLossSmooth, MultiFocalLoss
 from evaluate import Evaluate
 from checkpoint import Checkpoint
 
@@ -43,8 +45,8 @@ class Trainer(object):
             self.model = self.model.cuda()
 
         # --- setup optimizer ---
-        optim = torch.optim.AdamW(
-            self.model.parameters(), lr=1e-3, betas=(0.9, 0.999))
+        optim = torch.optim.AdamW(self.model.parameters(), lr=1e-3, betas=(0.9, 0.999))
+        #optim = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9)
         #self.optimizer = optim(self.model)
         self.optimizer = optim
         # --- setup dataset(train + test) ---
@@ -91,8 +93,12 @@ class Trainer(object):
         test_dataset.compute_class_num()
 
         # --- setup loss function ---
-        #self.criterion = ASLMarginLossSmooth(class_weights=self.train_dataloader.dataset.compute_class_weights())
         self.criterion = nn.CrossEntropyLoss()
+        #weight = torch.tensor(self.train_dataloader.dataset.compute_class_weights())
+        #if self.to_gpu:
+        #    weight = weight.cuda()
+        #self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
+        #self.criterion = ASLMarginLossSmooth(class_weights=self.train_dataloader.dataset.compute_class_weights())
 
         # --- setup evaluator ---
         self.evaluator = Evaluate(
@@ -110,7 +116,7 @@ class Trainer(object):
         # --- setup checkpoint ---
         self.checkpoint = Checkpoint(interval=2,
                                      save_optimizer=True,
-                                     out_dir='model_save',
+                                     out_dir='model_save_weight',
                                      save_last=True,
                                      max_epoch=100,
                                      avg_step=20)
@@ -206,7 +212,9 @@ class Trainer(object):
             with torch.cuda.amp.autocast():
                 # forward
                 out = self.model(data_batch[0])
-                loss = self.criterion(out, data_batch[1]) 
+                _, labels = data_batch[1].max(dim=1)
+                loss = self.criterion(out, labels) 
+                #loss = self.criterion(out, data_batch[1]) 
 
             self.amp_grad_scaler.scale(loss).backward()
             self.amp_grad_scaler.unscale_(self.optimizer)
@@ -218,8 +226,9 @@ class Trainer(object):
             pred_probab = out.softmax(dim=1)
             y_pred = pred_probab.argmax(1)
             pred = torch.zeros_like(pred_probab)
+            pred[torch.arange(pred_probab.size(0)), y_pred] = 1
+
             for b in range(data_batch[1].shape[0]):
-                pred[b][y_pred[b]] = 1
                 for c in range(data_batch[1].shape[1]):
                     acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
                     if data_batch[1][b, c] == 1:
@@ -243,3 +252,31 @@ class Trainer(object):
                 return loss_list, -1
 
         return loss_list, acc_list
+    
+    def metrics(self):    
+        self.checkpoint.resume_best_model(self.model)
+        self.model.eval()
+
+        pred_list = []
+        label_list = []
+        prog_bar = tqdm(self.test_dataloader, ncols=120)
+        for i, data_batch in enumerate(prog_bar):
+            torch.cuda.empty_cache()
+            label_list.append(data_batch[1].numpy())
+            data_batch[0] = data_batch[0].cuda(non_blocking=True)
+            data_batch[1] = data_batch[1].cuda(non_blocking=True)
+
+            with torch.no_grad():
+                out = self.model(data_batch[0])  # [B, n_cls, 2]
+
+            pred_probab = out.softmax(dim=1)
+            y_pred = pred_probab.argmax(1)
+            pred = torch.zeros_like(pred_probab)
+            pred[torch.arange(pred_probab.size(0)), y_pred] = 1
+            pred_list.append(pred.cpu().numpy())
+        
+        figure, ax = plt.subplots(figsize=(30, 24))
+        cm = confusion_matrix(y_true=np.concatenate(label_list, axis=0).argmax(axis=1), y_pred=np.concatenate(pred_list, axis=0).argmax(axis=1))
+        cm_display = ConfusionMatrixDisplay(cm)
+        cm_display.plot(ax=ax)
+        plt.show()

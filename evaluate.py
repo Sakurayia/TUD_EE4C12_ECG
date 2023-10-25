@@ -133,9 +133,9 @@ class Evaluate(object):
             logits_list.append(pred_probab.cpu().numpy())
             y_pred = pred_probab.argmax(1)
             pred = torch.zeros_like(pred_probab)
+            pred[torch.arange(pred_probab.size(0)), y_pred] = 1
 
             for b in range(data_batch[1].shape[0]):
-                pred[b][y_pred[b]] = 1
                 for c in range(data_batch[1].shape[1]):
                     all_acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
                     if data_batch[1][b, c] == 1:
@@ -153,8 +153,8 @@ class Evaluate(object):
 
 
 
-
-            val_loss = self.criterion(out, data_batch[1])
+            _, labels = data_batch[1].max(dim=1)
+            val_loss = self.criterion(out, labels)
             loss_list.append(float(val_loss))
             prog_bar.set_description('[val] loss:{:.4f} acc[pos|all]:{:.2f}|{:.2f}'
                                         .format(np.array(loss_list).sum() / len(loss_list),
@@ -172,8 +172,11 @@ class Evaluate(object):
 
     def compute_and_add_to_metrics(self, logits, target):
         # [B, C]
-        pred = (logits > self.thresh)
-        pred = pred.astype(np.int32)
+        #pred = (logits > self.thresh)
+        #pred = pred.astype(np.int32)
+        pred = np.zeros_like(logits)
+        index = logits.argmax(1)
+        pred[np.arange(logits.shape[0]), index] = 1
 
         pos_sample = target.sum(axis=1) > 0
         hamming_loss = metrics.hamming_loss(target, pred) # 负样本参与计算

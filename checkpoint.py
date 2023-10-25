@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import sys
 import time
 import numpy as np
-matplotlib.use("agg")
+#matplotlib.use("agg")
 
 def save_checkpoint(model, filename, optimizer, meta):
     torch.save({
@@ -22,7 +22,10 @@ def load_checkpoint(model,
                 strict=False,
                 logger=None,
                 revise_keys=[(r'^module\.', '')]):
-    return torch.load(filename)
+    checkpoint = torch.load(filename)
+    model.load_state_dict(checkpoint['model'])
+
+    return checkpoint
 
 class Checkpoint(object):
     """Save checkpoints periodically.
