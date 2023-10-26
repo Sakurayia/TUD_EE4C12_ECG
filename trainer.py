@@ -14,6 +14,8 @@ from loss import ASLMarginLossSmooth, MultiFocalLoss
 from evaluate import Evaluate
 from checkpoint import Checkpoint
 
+import json
+
 class_name = [
     0,
     1,
@@ -32,6 +34,9 @@ class_name = [
     14
 ]
 
+f = open('path.json')
+train_path, val_path, test_path = json.load(f).values()
+f.close()
 
 class Trainer(object):
     def __init__(self):
@@ -58,15 +63,15 @@ class Trainer(object):
         self.batch_size = 256
 
         num_workers = 8 if not torch.cuda.is_available() else torch.cuda.device_count() * 4
-        train_dataset = ECGDataset("data\\train_data.csv",
+        train_dataset = ECGDataset(train_path,
                                    transform=transform,
                                    target_transform=target_transform,
                                    class_name=self.class_name)
-        val_dataset = ECGDataset("data\\val_data.csv",
+        val_dataset = ECGDataset(val_path,
                                  transform=transform,
                                  target_transform=target_transform,
                                  class_name=self.class_name)
-        test_dataset = ECGDataset("data\\test_data.csv",
+        test_dataset = ECGDataset(test_path,
                                   transform=transform,
                                   target_transform=target_transform,
                                   class_name=self.class_name)
