@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor, Lambda
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn import metrics
+from terminaltables import AsciiTable
 from model import NeuralNetwork
 from dataset import ECGDataset
 from loss import ASLMarginLossSmooth, MultiFocalLoss
@@ -94,7 +95,7 @@ class Trainer(object):
 
         # --- setup loss function ---
         self.criterion = nn.CrossEntropyLoss()
-        #weight = torch.tensor(self.train_dataloader.dataset.compute_class_weights())
+        #weight = torch.tensor([1, 10, 10, 10, 100, 40, 20, 50, 60, 150, 60, 30, 10, 30, 100])
         #if self.to_gpu:
         #    weight = weight.cuda()
         #self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
@@ -116,7 +117,7 @@ class Trainer(object):
         # --- setup checkpoint ---
         self.checkpoint = Checkpoint(interval=2,
                                      save_optimizer=True,
-                                     out_dir='model_save_weight',
+                                     out_dir='model_save_2',
                                      save_last=True,
                                      max_epoch=100,
                                      avg_step=20)
@@ -225,25 +226,25 @@ class Trainer(object):
             loss_list.append(float(loss))
             pred_probab = out.softmax(dim=1)
             y_pred = pred_probab.argmax(1)
-            pred = torch.zeros_like(pred_probab)
-            pred[torch.arange(pred_probab.size(0)), y_pred] = 1
+            y_true = data_batch[1].argmax(1)
 
-            for b in range(data_batch[1].shape[0]):
-                for c in range(data_batch[1].shape[1]):
-                    acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
-                    if data_batch[1][b, c] == 1:
-                        pos_acc_list.append(int(pred[b, c]))
+            #for b in range(data_batch[1].shape[0]):
+            #    for c in range(data_batch[1].shape[1]):
+            #        acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
+            #        if data_batch[1][b, c] == 1:
+            #            pos_acc_list.append(int(pred[b, c]))
 
-            bar_dataset.set_description('epoch {:d}/{:d} lr: {:.8f} loss:{:.4f} acc[pos|all]:{:.2f}|{:.2f}'
+            for b in range(y_true.shape[0]):
+                acc_list.append(int(y_pred[b]) == int(y_true[b]))
+
+            bar_dataset.set_description('epoch {:d}/{:d} lr: {:.8f} loss:{:.4f} accuracy:{:.4f}'
                                         .format(epoch,
                                                 self.max_epoch,
                                                 self.optimizer.param_groups[0]['lr'],
                                                 np.array(loss_list).sum(
                                                 ) / len(loss_list),
-                                                np.array(pos_acc_list).sum(
-                                                ) / len(pos_acc_list) * 100,
                                                 np.array(acc_list).sum(
-                                                ) / len(acc_list) * 100,
+                                                ) / len(acc_list),
                                                 )
                                         )
 
@@ -253,12 +254,17 @@ class Trainer(object):
 
         return loss_list, acc_list
     
-    def metrics(self):    
+    def metrics(self, confusion_matrix_=False):    
         self.checkpoint.resume_best_model(self.model)
         self.model.eval()
 
         pred_list = []
         label_list = []
+        all_acc_list = []
+        acc_list = []
+        for i in range(len(self.class_name) + 1):
+            acc_list.append([])
+
         prog_bar = tqdm(self.test_dataloader, ncols=120)
         for i, data_batch in enumerate(prog_bar):
             torch.cuda.empty_cache()
@@ -270,13 +276,58 @@ class Trainer(object):
                 out = self.model(data_batch[0])  # [B, n_cls, 2]
 
             pred_probab = out.softmax(dim=1)
-            y_pred = pred_probab.argmax(1)
-            pred = torch.zeros_like(pred_probab)
-            pred[torch.arange(pred_probab.size(0)), y_pred] = 1
-            pred_list.append(pred.cpu().numpy())
+            pred_list.append(pred_probab.cpu().numpy())
+            y_pred_batch = pred_probab.argmax(1)
+            y_true_batch = data_batch[1].argmax(1)
+
+            for b in range(y_true_batch.shape[0]):
+                all_acc_list.append(int(y_pred_batch[b]) == int(y_true_batch[b]))
+                acc_list[int(y_true_batch[b])].append(int(y_pred_batch[b]) == int(y_true_batch[b]))
+
+        y_true = np.concatenate(label_list, axis=0).argmax(axis=1)
+        y_pred = np.concatenate(pred_list, axis=0).argmax(axis=1)
+
+        precision, recall, f_score, support = metrics.precision_recall_fscore_support(y_true, y_pred, labels=self.class_name)
+        precision_macro, recall_macro, f_score_macro, _ = \
+            metrics.precision_recall_fscore_support(y_true, y_pred, labels=self.class_name, average='macro')
+        precision_weighted, recall_weighted, f_score_weighted, _ = \
+            metrics.precision_recall_fscore_support(y_true, y_pred, labels=self.class_name, average='weighted')
         
-        figure, ax = plt.subplots(figsize=(30, 24))
-        cm = confusion_matrix(y_true=np.concatenate(label_list, axis=0).argmax(axis=1), y_pred=np.concatenate(pred_list, axis=0).argmax(axis=1))
-        cm_display = ConfusionMatrixDisplay(cm)
-        cm_display.plot(ax=ax)
-        plt.show()
+        acc = np.array(all_acc_list).sum() / len(all_acc_list)
+        acc_per_class = [np.array(acc_per_cls).sum()/max(len(acc_per_cls), 1) for acc_per_cls in acc_list]
+
+        metric_class_table_data = [['Class', 'Count', 'Accuracy', 'Precision', 'Recall', 'F-Score']]
+        for cls_name, acc_c, precision_c, recall_c, f_score_c, support_c in zip(self.class_name, acc_per_class, precision, recall, f_score, support):
+            metric_class_table_data.append([cls_name,
+                                            '{:d}'.format(support_c),
+                                            '{:.4f}'.format(acc_c),
+                                            '{:.4f}'.format(precision_c),
+                                            '{:.4f}'.format(recall_c),
+                                            '{:.4f}'.format(f_score_c)])
+        metric_class_table_data.append(['accuracy',
+                                            '{:d}'.format(np.array(support).sum()),
+                                            '{:.4f}'.format(acc),
+                                            '\\',
+                                            '\\',
+                                            '\\'])
+        metric_class_table_data.append(['macro avg',
+                                            '{:d}'.format(np.array(support).sum()),
+                                            '\\',
+                                            '{:.4f}'.format(precision_macro),
+                                            '{:.4f}'.format(recall_macro),
+                                            '{:.4f}'.format(f_score_macro)])
+        metric_class_table_data.append(['weighted avg',
+                                            '{:d}'.format(np.array(support).sum()),
+                                            '\\',
+                                            '{:.4f}'.format(precision_weighted),
+                                            '{:.4f}'.format(recall_weighted),
+                                            '{:.4f}'.format(f_score_weighted)])
+        metric_class_table = AsciiTable(metric_class_table_data)
+        print('\n' + metric_class_table.table)
+        
+        if confusion_matrix_:
+            _, ax = plt.subplots(figsize=(30, 24))
+            cm = metrics.confusion_matrix(y_true=y_true, y_pred=y_pred, labels=self.class_name)
+            cm_display = metrics.ConfusionMatrixDisplay(cm)
+            cm_display.plot(ax=ax)
+            plt.show()
