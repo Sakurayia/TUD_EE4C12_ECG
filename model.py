@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
-        super().__init__()
+        super(NeuralNetwork, self).__init__()
         self.layer1 = nn.Linear(250, 128)
         self.layer2 = nn.Linear(128, 64)
         self.layer3 = nn.Linear(64, 15)

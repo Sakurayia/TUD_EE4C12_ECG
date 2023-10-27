@@ -2,6 +2,5 @@
 data/*
 __pycache__
 .vscode
-model_save
-model_save_weight
+model_save_*
 path.json

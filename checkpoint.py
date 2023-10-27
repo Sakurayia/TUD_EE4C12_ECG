@@ -1,4 +1,3 @@
-# Copyright (c) Open-MMLab. All rights reserved.
 import os
 import torch
 from torch.optim import Optimizer
@@ -7,7 +6,6 @@ import matplotlib.pyplot as plt
 import sys
 import time
 import numpy as np
-#matplotlib.use("agg")
 
 def save_checkpoint(model, filename, optimizer, meta):
     torch.save({
@@ -16,12 +14,7 @@ def save_checkpoint(model, filename, optimizer, meta):
             'meta': meta
             }, filename)
 
-def load_checkpoint(model,
-                filename,
-                map_location='cpu',
-                strict=False,
-                logger=None,
-                revise_keys=[(r'^module\.', '')]):
+def load_checkpoint(model, filename):
     checkpoint = torch.load(filename)
     model.load_state_dict(checkpoint['model'])
 
@@ -156,22 +149,22 @@ class Checkpoint(object):
                     else:
                         model_performance = model_performance[self.model_judge_class]
                 if self.model_best_performance < model_performance:
-                    # 更新最高记录
+                    # update best record
                     self.model_best_performance = model_performance
                     self.model_best_epoch = meta['epoch']
-                    # 存新的模型
+                    # save best model
                     if self.save_best_model:
                         filename = os.path.join(self.out_dir, 'best_model.pth')
                         save_checkpoint(model, filename, optimizer, self.meta)
 
-                # 如果最高记录和当前epoch差值大于早停条件则返回False, 表示模型可以终止训练
+                # early stop
                 return meta['epoch'] - self.model_best_epoch < self.early_stopping
-        # 没到存档时间, 不使用早停都会返回True, 表示模型继续训练
+        # continue training
         return True
 
 
     def final_test(self, meta):
-        # 最后一次在测试集上的测试, 保存meta信息到txt文件中
+        # test on test dataset, save meta to txt
         self.write_log(meta, is_final_test=True)
 
 
@@ -190,10 +183,7 @@ class Checkpoint(object):
             checkpoint = load_checkpoint(
                 model,
                 filename,
-                map_location='cpu',
-                strict=False,
-                logger=None,
-                revise_keys=[(r'^module\.', '')])
+                )
 
             if isinstance(optimizer, Optimizer):
                 optimizer.load_state_dict(checkpoint['optimizer'])
@@ -229,13 +219,7 @@ class Checkpoint(object):
             filename = os.path.join(self.out_dir, 'best_model.pth')
         else:
             filename = os.path.join(self.out_dir, 'last_cp.pth')
-        checkpoint = load_checkpoint(
-            model,
-            filename,
-            map_location='cpu',
-            strict=False,
-            logger=None,
-            revise_keys=[(r'^module\.', '')])
+        checkpoint = load_checkpoint(model, filename)
 
         print(f"--- resume best model at epoch {checkpoint['meta']['epoch'][-1] + 1} ---")
         return checkpoint['meta']['epoch'][-1] + 1

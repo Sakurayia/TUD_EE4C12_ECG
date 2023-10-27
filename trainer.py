@@ -53,7 +53,6 @@ class Trainer(object):
         # --- setup optimizer ---
         optim = torch.optim.AdamW(self.model.parameters(), lr=1e-3, betas=(0.9, 0.999))
         #optim = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9)
-        #self.optimizer = optim(self.model)
         self.optimizer = optim
         # --- setup dataset(train + test) ---
         # --- dataset config ---
@@ -99,12 +98,13 @@ class Trainer(object):
         test_dataset.compute_class_num()
 
         # --- setup loss function ---
+        weight = torch.tensor([1, 10, 10, 10, 200, 40, 20, 50, 60, 200, 60, 30, 10, 30, 200], dtype=torch.float32)
+        if self.to_gpu:
+            weight = weight.cuda()
         self.criterion = nn.CrossEntropyLoss()
-        #weight = torch.tensor([1, 10, 10, 10, 100, 40, 20, 50, 60, 150, 60, 30, 10, 30, 100])
-        #if self.to_gpu:
-        #    weight = weight.cuda()
+        #self.criterion = nn.CrossEntropyLoss(weight=weight)
         #self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
-        #self.criterion = ASLMarginLossSmooth(class_weights=self.train_dataloader.dataset.compute_class_weights())
+        #self.criterion = ASLMarginLossSmooth(class_weights=weight)
 
         # --- setup evaluator ---
         self.evaluator = Evaluate(
@@ -122,10 +122,13 @@ class Trainer(object):
         # --- setup checkpoint ---
         self.checkpoint = Checkpoint(interval=2,
                                      save_optimizer=True,
-                                     out_dir='model_save_2',
+                                     out_dir='model_save_adamw_with_lr_updater',
                                      save_last=True,
                                      max_epoch=100,
                                      avg_step=20)
+        # --- setup lr updater ---
+        max_iter = self.max_epoch * len(self.train_dataloader)
+        self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_iter, eta_min=2.5e-7)
         # --- load last trained model ---
         self.start_epoch = self.checkpoint.resume(False,
                                                   self.model,
@@ -134,7 +137,7 @@ class Trainer(object):
                                                   'last_cp.pth')
 
     def train_network(self):
-        # --- 开始训练 ---
+        # --- start train ---
         torch.autograd.set_detect_anomaly(True)  # activate anomaly detection
         cur_iter = 0
         for epoch in range(self.start_epoch + 1, self.max_epoch + 1):
@@ -185,14 +188,12 @@ class Trainer(object):
                     f'Model Training Procedure Has Early Stopping At Epoch {epoch}')
                 break
 
-        # 最后做一次测试集的测试
-        # 读取最好的模型
+        # load the best model
         best_model_epoch = self.checkpoint.resume_best_model(self.model)
-        # 测试
+        # test
         self.evaluator.switch_data_loader(self.test_dataloader)
         eval_res = self.evaluator.before_every_train_epoch(
             self.model, force_eval=True)
-        # 保存结果
         # save
         save_meta = dict(
             epoch=best_model_epoch - 1,
@@ -253,9 +254,9 @@ class Trainer(object):
                                                 )
                                         )
 
-            # 检测到nan时退出
             if np.isnan(np.array(loss_list).sum() / len(loss_list)):
                 return loss_list, -1
+        self.lr_scheduler.step()
 
         return loss_list, acc_list
     
@@ -278,7 +279,7 @@ class Trainer(object):
             data_batch[1] = data_batch[1].cuda(non_blocking=True)
 
             with torch.no_grad():
-                out = self.model(data_batch[0])  # [B, n_cls, 2]
+                out = self.model(data_batch[0])
 
             pred_probab = out.softmax(dim=1)
             pred_list.append(pred_probab.cpu().numpy())
