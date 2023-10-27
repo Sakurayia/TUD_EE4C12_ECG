@@ -15,6 +15,7 @@ from evaluate import Evaluate
 from checkpoint import Checkpoint
 
 import json
+import os
 
 class_name = [
     0,
@@ -100,10 +101,10 @@ class Trainer(object):
 
         # --- setup loss function ---
         self.criterion = nn.CrossEntropyLoss()
-        #weight = torch.tensor([1, 10, 10, 10, 100, 40, 20, 50, 60, 150, 60, 30, 10, 30, 100])
-        #if self.to_gpu:
+        # weight = torch.tensor([1, 10, 10, 10, 100, 40, 20, 50, 60, 150, 60, 30, 10, 30, 100])
+        # if self.to_gpu:
         #    weight = weight.cuda()
-        #self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
+        # self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
         #self.criterion = ASLMarginLossSmooth(class_weights=self.train_dataloader.dataset.compute_class_weights())
 
         # --- setup evaluator ---
@@ -122,7 +123,7 @@ class Trainer(object):
         # --- setup checkpoint ---
         self.checkpoint = Checkpoint(interval=2,
                                      save_optimizer=True,
-                                     out_dir='model_save_2',
+                                     out_dir='model_save_cnn',
                                      save_last=True,
                                      max_epoch=100,
                                      avg_step=20)
@@ -331,8 +332,15 @@ class Trainer(object):
         print('\n' + metric_class_table.table)
         
         if confusion_matrix_:
-            _, ax = plt.subplots(figsize=(30, 24))
+            fig, ax = plt.subplots(figsize=(20, 18))
             cm = metrics.confusion_matrix(y_true=y_true, y_pred=y_pred, labels=self.class_name)
             cm_display = metrics.ConfusionMatrixDisplay(cm)
             cm_display.plot(ax=ax)
-            plt.show()
+            plt.rc('font', size=16)   
+            plt.title("Confusion Matrix", fontsize=18)
+            plt.margins(0.1)
+            ax.xaxis.set_ticks_position('none')
+            ax.xaxis.label.set_size(16)
+            ax.yaxis.label.set_size(16)
+            fig.show()
+            fig.savefig(os.path.join(self.checkpoint.out_dir, "matrix.pdf"), bbox_inches='tight')

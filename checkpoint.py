@@ -86,6 +86,10 @@ class Checkpoint(object):
 
         self.max_save = max_save
         self.log_txt = os.path.join(out_dir, self.get_log_name())
+        try:
+            os.mkdir(self.out_dir)
+        except:
+            pass
 
     def init_meta_recorder(self):
         self.meta = dict()
@@ -250,30 +254,36 @@ class Checkpoint(object):
         avg_loss = self.average_list(self.meta['step_loss'], self.avg_step)
         step = [i*self.avg_step for i in range(len(avg_loss))]
 
-        fig = plt.figure(figsize=(30, 24))
+        fig = plt.figure(figsize=(12, 9))
         ax = fig.add_subplot(111)
         ax.plot(step, avg_loss, color='b', ls='-', label="loss")
-        ax.set_xlabel("iter")
-        ax.set_ylabel("loss")
+        plt.title("Progress Loss vs Iter", fontsize=18)
+        ax.set_xlabel("iter", fontsize=16)
+        ax.set_ylabel("loss", fontsize=16)
+        plt.margins(0.1)
+        ax.xaxis.set_ticks_position('none')
         ax.legend()
-        fig.savefig(os.path.join(self.out_dir, "step_progress.png"))
+        fig.savefig(os.path.join(self.out_dir, "step_progress.pdf"), bbox_inches='tight')
         plt.close()
 
 
         avg_loss = self.meta['val_loss']
         step = [i * self.interval for i in range(len(avg_loss))]
         step = np.array(step).astype(dtype=np.int32)
-        fig = plt.figure(figsize=(30, 24))
+        fig = plt.figure(figsize=(12, 9))
         ax = fig.add_subplot(111)
         ax.plot(step, avg_loss, color='b', ls='-', label="val loss")
 
         train_loss = self.meta['train_loss']
         ax.plot(step, train_loss, color='g', ls='-', label="train loss")
 
-        ax.set_xlabel("epoch")
-        ax.set_ylabel("loss")
+        plt.title("Loss vs Epoch", fontsize=18)
+        ax.set_xlabel("epoch", fontsize=16)
+        ax.set_ylabel("loss", fontsize=16)
+        plt.margins(0.1)
+        ax.xaxis.set_ticks_position('none')
         ax.legend()
-        fig.savefig(os.path.join(self.out_dir, "val_loss.png"))
+        fig.savefig(os.path.join(self.out_dir, "val_loss.pdf"), bbox_inches='tight')
         plt.close()
 
     def average_list(self, list_data, avg_step):
