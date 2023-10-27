@@ -47,7 +47,6 @@ class ECGDataset(Dataset):
     def compute_class_weights(self):
         cls_counter = self.compute_class_num(table_print=False)
         total = sum(cls_counter)
-        #max_ = max(cls_counter)
         cls_freq = [cnt / total for cnt in cls_counter]
         cls_weights = [1.0 / freq for freq in cls_freq]
 

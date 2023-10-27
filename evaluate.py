@@ -53,11 +53,6 @@ class Evaluate(object):
                                             '{:.4f}'.format(precision_c),
                                             '{:.4f}'.format(recall_c),
                                             '{:.4f}'.format(f_score_c)])
-        metric_class_table_data.append(['accuracy',
-                                            '{:.4f}'.format(val_acc),
-                                            '\\',
-                                            '\\',
-                                            '\\'])
         metric_class_table_data.append(['macro avg',
                                             '\\',
                                             '{:.4f}'.format(precision_macro),
@@ -98,22 +93,12 @@ class Evaluate(object):
             data_batch[1] = data_batch[1].cuda(non_blocking=True)
 
             with torch.no_grad():
-                out = model(data_batch[0])  # [B, n_cls, 2]
-
-            #pred = out.sigmoid()
-            #logits_list.append(pred.cpu().numpy())
+                out = model(data_batch[0]) 
 
             pred_probab = out.softmax(dim=1)
             logits_list.append(pred_probab.cpu().numpy())
             y_pred = pred_probab.argmax(1)
             y_true = data_batch[1].argmax(1)
-
-            #for b in range(data_batch[1].shape[0]):
-            #    for c in range(data_batch[1].shape[1]):
-            #        all_acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
-            #        if data_batch[1][b, c] == 1:
-            #            pos_acc_list.append(int(pred[b, c]))
-            #            acc_list[c].append(int(pred[b, c]) == int(data_batch[1][b, c]))
 
             for b in range(y_true.shape[0]):
                 all_acc_list.append(int(y_pred[b]) == int(y_true[b]))

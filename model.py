@@ -1,22 +1,22 @@
 from torch import nn
 import torch.nn.functional as F
 
-# class NeuralNetwork(nn.Module):
-#     def __init__(self):
-#         super(NeuralNetwork, self).__init__()
-#         self.layer1 = nn.Linear(250, 128)
-#         self.layer2 = nn.Linear(128, 64)
-#         self.layer3 = nn.Linear(64, 15)
-
-#     def forward(self, x):
-#         x = F.relu(self.layer1(x))
-#         x = F.relu(self.layer2(x))
-#         x = self.layer3(x)
-#         return x
-
 class NeuralNetwork(nn.Module):
+     def __init__(self):
+         super(NeuralNetwork, self).__init__()
+         self.layer1 = nn.Linear(250, 128)
+         self.layer2 = nn.Linear(128, 64)
+         self.layer3 = nn.Linear(64, 15)
+
+     def forward(self, x):
+         x = F.relu(self.layer1(x))
+         x = F.relu(self.layer2(x))
+         x = self.layer3(x)
+         return x
+
+class ConvolutionalNeuralNetwork(nn.Module):
     def __init__(self):
-        super(NeuralNetwork, self).__init__()
+        super(ConvolutionalNeuralNetwork, self).__init__()
         self.conv1 = nn.Conv1d(1, 64, 5)
         self.pool = nn.MaxPool1d(2, 2)
         self.conv2 = nn.Conv1d(64, 256, 5)
@@ -33,3 +33,11 @@ class NeuralNetwork(nn.Module):
         x = F.relu(self.layer2(x))
         x = self.layer3(x)
         return x
+    
+def getModel(model):
+    if model == 'linear':
+        return NeuralNetwork()
+    elif model == 'cnn':
+        return ConvolutionalNeuralNetwork()
+    else:
+        raise ValueError(f'Model name not found')

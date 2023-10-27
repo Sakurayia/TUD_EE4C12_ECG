@@ -8,9 +8,9 @@ from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 from sklearn import metrics
 from terminaltables import AsciiTable
-from model import NeuralNetwork
+from model import getModel
 from dataset import ECGDataset
-from loss import ASLMarginLossSmooth, MultiFocalLoss
+from loss import MultiFocalLoss
 from evaluate import Evaluate
 from checkpoint import Checkpoint
 
@@ -40,29 +40,27 @@ train_path, val_path, test_path = json.load(f).values()
 f.close()
 
 class Trainer(object):
-    def __init__(self):
+    def __init__(self, model, out_dir, compute_class = True):
         super(Trainer, self).__init__()
         # --- config ---
         self.to_gpu = True if torch.cuda.is_available() else False
         self.class_name = class_name
         self.max_epoch = 100
         # --- load model ---
-        self.model = NeuralNetwork()
+        self.model = getModel(model=model)
         if self.to_gpu:
             self.model = self.model.cuda()
 
         # --- setup optimizer ---
         optim = torch.optim.AdamW(self.model.parameters(), lr=1e-3, betas=(0.9, 0.999))
-        #optim = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9)
         self.optimizer = optim
-        # --- setup dataset(train + test) ---
+        # --- setup dataset ---
         # --- dataset config ---
         transform = Lambda(lambda x: torch.from_numpy(x).to(torch.float32))
         target_transform = Lambda(lambda y: torch.zeros(
             15, dtype=torch.float).scatter_(0, torch.tensor(y), value=1))
         self.batch_size = 256
 
-        num_workers = 8 if not torch.cuda.is_available() else torch.cuda.device_count() * 4
         train_dataset = ECGDataset(train_path,
                                    transform=transform,
                                    target_transform=target_transform,
@@ -78,25 +76,22 @@ class Trainer(object):
         self.train_dataloader = DataLoader(dataset=train_dataset,
                                            batch_size=self.batch_size,
                                            shuffle=True,
-                                           #num_workers=num_workers,
                                            pin_memory=True,
                                            drop_last=True)
         self.val_dataloader = DataLoader(dataset=val_dataset,
                                          batch_size=self.batch_size,
                                          shuffle=False,
-                                         #num_workers=num_workers,
                                          pin_memory=True,
                                          drop_last=False)
         self.test_dataloader = DataLoader(dataset=test_dataset,
                                           batch_size=self.batch_size,
                                           shuffle=False,
-                                          #num_workers=num_workers,
                                           pin_memory=True,
                                           drop_last=False)
 
-        train_dataset.compute_class_num()
-        val_dataset.compute_class_num()
-        test_dataset.compute_class_num()
+        train_dataset.compute_class_num(compute_class)
+        val_dataset.compute_class_num(compute_class)
+        test_dataset.compute_class_num(compute_class)
 
         # --- setup loss function ---
         weight = torch.tensor([1, 10, 10, 10, 200, 40, 20, 50, 60, 200, 60, 30, 10, 30, 200], dtype=torch.float32)
@@ -105,7 +100,6 @@ class Trainer(object):
         self.criterion = nn.CrossEntropyLoss()
         #self.criterion = nn.CrossEntropyLoss(weight=weight)
         #self.criterion = MultiFocalLoss(num_class=15, alpha=weight, gamma=2.0, reduction='mean')
-        #self.criterion = ASLMarginLossSmooth(class_weights=weight)
 
         # --- setup evaluator ---
         self.evaluator = Evaluate(
@@ -123,7 +117,7 @@ class Trainer(object):
         # --- setup checkpoint ---
         self.checkpoint = Checkpoint(interval=2,
                                      save_optimizer=True,
-                                     out_dir='model_save_linear',
+                                     out_dir=out_dir,
                                      save_last=True,
                                      max_epoch=100,
                                      avg_step=20)
@@ -139,10 +133,9 @@ class Trainer(object):
 
     def train_network(self):
         # --- start train ---
-        torch.autograd.set_detect_anomaly(True)  # activate anomaly detection
+        torch.autograd.set_detect_anomaly(True) 
         cur_iter = 0
         for epoch in range(self.start_epoch + 1, self.max_epoch + 1):
-            # self.evaluator.before_every_train_epoch(self.model, 1)
             # train
             loss_list, acc_list = self.train_one_epoch(epoch)
             train_loss = np.array(loss_list).sum() / len(loss_list)
@@ -182,8 +175,6 @@ class Trainer(object):
             else:
                 continue_training = True
 
-            #self.criterion.reset_class_weights(self.train_dataloader.dataset.compute_class_weights())
-
             if not continue_training:
                 print(
                     f'Model Training Procedure Has Early Stopping At Epoch {epoch}')
@@ -208,9 +199,7 @@ class Trainer(object):
         bar_dataset = tqdm(self.train_dataloader, ncols=120)
         loss_list = []
         acc_list = []
-        pos_acc_list = []
         for i, data_batch in enumerate(bar_dataset):
-            cur_iter = (epoch - 1) * len(self.train_dataloader) + i
             torch.cuda.empty_cache()
             self.model.train()
             if self.to_gpu:
@@ -234,12 +223,6 @@ class Trainer(object):
             pred_probab = out.softmax(dim=1)
             y_pred = pred_probab.argmax(1)
             y_true = data_batch[1].argmax(1)
-
-            #for b in range(data_batch[1].shape[0]):
-            #    for c in range(data_batch[1].shape[1]):
-            #        acc_list.append(int(pred[b, c]) == int(data_batch[1][b, c]))
-            #        if data_batch[1][b, c] == 1:
-            #            pos_acc_list.append(int(pred[b, c]))
 
             for b in range(y_true.shape[0]):
                 acc_list.append(int(y_pred[b]) == int(y_true[b]))
@@ -311,12 +294,6 @@ class Trainer(object):
                                             '{:.4f}'.format(precision_c),
                                             '{:.4f}'.format(recall_c),
                                             '{:.4f}'.format(f_score_c)])
-        metric_class_table_data.append(['accuracy',
-                                            '{:d}'.format(np.array(support).sum()),
-                                            '{:.4f}'.format(acc),
-                                            '\\',
-                                            '\\',
-                                            '\\'])
         metric_class_table_data.append(['macro avg',
                                             '{:d}'.format(np.array(support).sum()),
                                             '\\',

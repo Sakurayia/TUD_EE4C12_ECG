@@ -34,14 +34,8 @@ class Checkpoint(object):
             Default: True.
         out_dir (str, optional): The directory to save checkpoints. If not
             specified, ``runner.work_dir`` will be used by default.
-        max_keep_ckpts (int, optional): The maximum checkpoints to keep.
-            In some cases we want only the latest few checkpoints and would
-            like to delete old ones to save the disk space.
-            Default: -1, which means unlimited.
         save_last (bool): Whether to force the last checkpoint to be saved
             regardless of interval.
-        sync_buffer (bool): Whether to synchronize buffers in different
-            gpus. Default: False.
     """
 
     def __init__(self,
@@ -121,7 +115,6 @@ class Checkpoint(object):
 
 
             if meta.get('amp_grad_scaler') is not None:
-                # self.meta['amp_grad_scaler'].append(meta['amp_grad_scaler'])
                 self.meta['amp_grad_scaler'] = meta['amp_grad_scaler']
 
             self.meta['best_epoch'] = self.model_best_epoch
@@ -135,8 +128,6 @@ class Checkpoint(object):
             save_file = [fname for fname in os.listdir(self.out_dir) if
                          fname.startswith("epoch_") and fname.endswith(".pth")]
             if len(save_file) > self.max_save:
-                # eg. max_save=5, interval=2, epoch = 10 save epoch_11.pth
-                # -> (have 1.pth,3.pth,5.pth,7.pth,9.pth,11.pth saved)remove epoch_1.pth
                 need_to_rm = os.path.join(self.out_dir, 'epoch_{}.pth'.format(meta['epoch'] - self.max_save * self.interval + 1))
                 if os.path.isfile(need_to_rm):
                     os.remove(need_to_rm)
